@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品管理 - 商品库存管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        .action-btn {
+            margin-right: 5px;
+        }
+        .status-badge {
+            font-size: 0.8rem;
+        }
+        .filter-btn {
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-box-seam"></i> 商品库存管理系统
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/stock">库存监控</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/product/list">商品管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/order/list">订单管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/redis-cache">Redis缓存</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-box"></i> 商品管理</h2>
+            <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
+                <i class="bi bi-plus-circle"></i> 发布商品
+            </button>
+        </div>
+        
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-light">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">商品列表</h5>
+                    <div>
+                        <a th:class="${currentStatus == null} ? 'btn btn-sm btn-primary filter-btn' : 'btn btn-sm btn-outline-primary filter-btn'" 
+                           href="/product/list">
+                            全部商品
+                        </a>
+                        <a th:class="${currentStatus != null && currentStatus == 1} ? 'btn btn-sm btn-primary filter-btn' : 'btn btn-sm btn-outline-primary filter-btn'" 
+                           href="/product/list?status=1">
+                            已上架
+                        </a>
+                        <a th:class="${currentStatus != null && currentStatus == 0} ? 'btn btn-sm btn-primary filter-btn' : 'btn btn-sm btn-outline-primary filter-btn'" 
+                           href="/product/list?status=0">
+                            已下架
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>商品图片</th>
+                                <th>商品名称</th>
+                                <th>价格</th>
+                                <th>库存</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr th:if="${products.empty}">
+                                <td colspan="8" class="text-center">暂无商品数据</td>
+                            </tr>
+                            <tr th:each="product : ${products}">
+                                <td th:text="${product.id}"></td>
+                                <td>
+                                    <img th:if="${product.imageUrl}" th:src="${product.imageUrl}" class="img-thumbnail" width="50" alt="商品图片">
+                                    <span th:unless="${product.imageUrl}" class="text-muted">无图片</span>
+                                </td>
+                                <td th:text="${product.name}"></td>
+                                <td th:text="${'¥' + product.price}"></td>
+                                <td th:text="${product.stock}"></td>
+                                <td>
+                                    <span th:if="${product.status == 1}" class="badge bg-success status-badge">上架中</span>
+                                    <span th:unless="${product.status == 1}" class="badge bg-secondary status-badge">已下架</span>
+                                </td>
+                                <td th:text="${#temporals.format(product.createTime, 'yyyy-MM-dd HH:mm')}"></td>
+                                <td>
+                                    <!-- 只有上架商品才能查看 -->
+                                    <!-- 上架商品显示可点击的查看按钮 -->
+                                    <button th:if="${product.status == 1}" class="btn btn-sm btn-info action-btn"
+                                            th:onclick="|viewProduct(${product.id})|">
+                                        <i class="bi bi-eye"></i> 查看
+                                    </button>
+                                    <!-- 下架商品显示禁用的按钮 -->
+                                    <button th:unless="${product.status == 1}" class="btn btn-sm btn-secondary action-btn" disabled>
+                                        <i class="bi bi-eye"></i> 已下架
+                                    </button>
+                                    <button class="btn btn-sm btn-warning action-btn"
+                                            th:onclick="|editProduct(${product.id})|">
+                                        <i class="bi bi-pencil"></i> 更新
+                                    </button>
+                                    <button th:if="${product.status == 1}" class="btn btn-sm btn-danger action-btn"
+                                            th:onclick="|confirmRemoveProduct(${product.id})|">
+                                        <i class="bi bi-archive"></i> 下架
+                                    </button>
+                                    <button th:unless="${product.status == 1}" class="btn btn-sm btn-success action-btn"
+                                            th:onclick="|restoreProduct(${product.id})|">
+                                        <i class="bi bi-arrow-return-left"></i> 上架
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary action-btn"
+                                            th:onclick="|clearProductCache(${product.id})|">
+                                        <i class="bi bi-trash"></i> 清除缓存
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加商品模态框 -->
+    <div class="modal fade" id="addProductModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">发布新商品</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="addProductForm">
+                        <div class="mb-3">
+                            <label for="name" class="form-label">商品名称</label>
+                            <input type="text" class="form-control" id="name" name="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="price" class="form-label">价格</label>
+                            <input type="number" class="form-control" id="price" name="price" step="0.01" min="0" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="stock" class="form-label">库存</label>
+                            <input type="number" class="form-control" id="stock" name="stock" min="0" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="imageUrl" class="form-label">图片URL</label>
+                            <input type="text" class="form-control" id="imageUrl" name="imageUrl">
+                        </div>
+                        <div class="mb-3">
+                            <label for="description" class="form-label">商品描述</label>
+                            <textarea class="form-control" id="description" name="description" rows="3" required></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="createProduct()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑商品模态框 -->
+    <div class="modal fade" id="editProductModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">更新商品信息</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editProductForm">
+                        <input type="hidden" id="edit-id" name="id">
+                        <div class="mb-3">
+                            <label for="edit-name" class="form-label">商品名称</label>
+                            <input type="text" class="form-control" id="edit-name" name="name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-price" class="form-label">价格</label>
+                            <input type="number" class="form-control" id="edit-price" name="price" step="0.01" min="0" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-stock" class="form-label">库存</label>
+                            <input type="number" class="form-control" id="edit-stock" name="stock" min="0" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-imageUrl" class="form-label">图片URL</label>
+                            <input type="text" class="form-control" id="edit-imageUrl" name="imageUrl">
+                        </div>
+                        <div class="mb-3">
+                            <label for="edit-description" class="form-label">商品描述</label>
+                            <textarea class="form-control" id="edit-description" name="description" rows="3" required></textarea>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="updateProduct()">保存更改</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 查看商品模态框 -->
+    <div class="modal fade" id="viewProductModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">商品详情</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <img id="view-image" src="" class="img-fluid rounded" alt="商品图片">
+                        </div>
+                        <div class="col-md-8">
+                            <h4 id="view-name"></h4>
+                            <p class="text-danger fw-bold" id="view-price"></p>
+                            <div class="mb-3">
+                                <span class="badge bg-info me-2">库存: <span id="view-stock"></span></span>
+                                <span id="view-status" class="badge me-2"></span>
+                            </div>
+                            <h5>商品描述</h5>
+                            <p id="view-description"></p>
+                            
+                            <!-- 添加购买区域 -->
+                            <div id="purchase-area" class="mt-4 p-3 border rounded bg-light">
+                                <h5><i class="bi bi-cart-plus"></i> 购买商品</h5>
+                                <div class="row align-items-center">
+                                    <div class="col-md-4">
+                                        <div class="input-group mb-3">
+                                            <span class="input-group-text">数量</span>
+                                            <input type="number" id="purchase-quantity" class="form-control" value="1" min="1">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-8">
+                                        <div class="mb-3">
+                                            <span class="text-secondary me-2">总价:</span>
+                                            <span id="purchase-total-price" class="text-danger fw-bold"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <!-- 商品信息通过window.currentProduct传递，不需要隐藏字段 -->
+                                <div class="d-grid gap-2">
+                                    <button id="btn-purchase" class="btn btn-primary" onclick="purchaseProduct()">
+                                        <i class="bi bi-bag-check"></i> 立即购买
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="small text-muted mt-3">
+                                <div>创建时间: <span id="view-createTime"></span></div>
+                                <div>更新时间: <span id="view-updateTime"></span></div>
+                            </div>
+
+                            <!-- 缓存状态显示 -->
+                            <div class="mt-3 p-2 bg-info bg-opacity-10 border border-info rounded">
+                                <small class="text-info">
+                                    <i class="bi bi-info-circle"></i>
+                                    <strong>缓存状态：</strong>商品信息已从数据库加载并缓存到Redis，下次访问将更快！
+                                </small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 确认下架商品模态框 -->
+    <div class="modal fade" id="removeProductModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">确认下架商品</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>确定要下架此商品吗？下架后商品将不再显示给用户。</p>
+                    <input type="hidden" id="remove-product-id">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" onclick="removeProduct()">确认下架</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer class="bg-light py-4 mt-5">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center">
+                    <p class="mb-0">© 2023 商品库存管理系统 | 基于Spring Boot和Redis</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        // 创建商品
+        function createProduct() {
+            const formData = {
+                name: document.getElementById('name').value,
+                price: document.getElementById('price').value,
+                stock: document.getElementById('stock').value,
+                imageUrl: document.getElementById('imageUrl').value,
+                description: document.getElementById('description').value
+            };
+
+            axios.post('/api/products', formData)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        alert('商品创建成功！');
+                        window.location.reload();
+                    } else {
+                        alert('创建失败: ' + response.data.msg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('创建失败，请检查网络连接或服务器状态');
+                });
+        }
+
+        // 查看商品详情
+        function viewProduct(id) {
+            console.log('查看商品详情, ID:', id);
+
+            // 通过AJAX获取商品信息，确保从数据库缓存到Redis
+            axios.get(`/api/products/${id}`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const product = response.data.data;
+
+                        // 检查商品状态
+                        if (product.status !== 1) {
+                            alert('该商品已下架，无法查看详情');
+                            return;
+                        }
+                        console.log('获取商品信息成功:', product);
+
+                        // 填充模态框数据
+                        document.getElementById('view-name').textContent = product.name;
+                        document.getElementById('view-price').textContent = '¥' + product.price;
+                        document.getElementById('view-stock').textContent = product.stock;
+                        document.getElementById('view-description').textContent = product.description || '暂无描述';
+                        document.getElementById('view-createTime').textContent = product.createTime;
+                        document.getElementById('view-updateTime').textContent = product.updateTime || '暂无更新';
+
+                        // 设置商品图片
+                        const imageElement = document.getElementById('view-image');
+                        if (product.imageUrl) {
+                            imageElement.src = product.imageUrl;
+                        } else {
+                            imageElement.src = 'https://via.placeholder.com/300x200?text=暂无图片';
+                        }
+
+                        // 设置状态标签
+                        const statusElement = document.getElementById('view-status');
+                        if (product.status === 1) {
+                            statusElement.className = 'badge bg-success me-2';
+                            statusElement.textContent = '已上架';
+                        } else {
+                            statusElement.className = 'badge bg-secondary me-2';
+                            statusElement.textContent = '已下架';
+                        }
+
+                        // 设置购买区域的商品ID和单价
+                        document.getElementById('purchase-quantity').value = 1;
+                        updateTotalPrice(product.price);
+
+                        // 存储商品信息供购买使用
+                        window.currentProduct = product;
+
+                        // 显示模态框
+                        const modal = new bootstrap.Modal(document.getElementById('viewProductModal'));
+                        modal.show();
+
+                        // 在控制台显示缓存状态信息
+                        console.log('✅ 商品信息已从数据库加载并缓存到Redis');
+                        console.log('📦 商品详情:', {
+                            id: product.id,
+                            name: product.name,
+                            price: product.price,
+                            stock: product.stock,
+                            status: product.status === 1 ? '已上架' : '已下架'
+                        });
+
+                        // 检查并显示缓存状态
+                        checkCacheStatus(product.id);
+
+                    } else {
+                        console.error('获取商品信息失败:', response.data.message);
+                        alert('获取商品信息失败: ' + response.data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('请求失败:', error);
+                    alert('获取商品信息失败，请检查网络连接');
+                });
+        }
+        
+        // 更新总价
+        function updateTotalPrice(unitPrice) {
+            const quantity = document.getElementById('purchase-quantity').value;
+            const totalPrice = (parseFloat(unitPrice) * parseInt(quantity)).toFixed(2);
+            document.getElementById('purchase-total-price').textContent = `¥${totalPrice}`;
+        }
+        
+        // 购买商品
+        function purchaseProduct() {
+            // 使用当前查看的商品信息
+            if (!window.currentProduct) {
+                alert('请先选择要购买的商品');
+                return;
+            }
+
+            const quantity = parseInt(document.getElementById('purchase-quantity').value);
+
+            // 验证数量
+            if (quantity < 1) {
+                alert('购买数量必须大于0');
+                return;
+            }
+
+            // 检查库存
+            if (quantity > window.currentProduct.stock) {
+                alert(`库存不足！当前库存：${window.currentProduct.stock}`);
+                return;
+            }
+
+            // 创建订单请求
+            const orderData = {
+                productId: window.currentProduct.id,
+                quantity: quantity
+            };
+
+            console.log('创建订单:', orderData);
+            
+            // 发送创建订单请求
+            axios.post('/api/orders', orderData)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const orderInfo = response.data.data;
+                        alert(`订单创建成功！订单号: ${orderInfo.orderNo}`);
+                        
+                        // 显示支付选择对话框
+                        showPaymentDialog(orderInfo);
+                    } else {
+                        alert('创建订单失败: ' + response.data.msg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    if (error.response && error.response.data) {
+                        alert('创建订单失败: ' + error.response.data.message);
+                    } else {
+                        alert('创建订单失败，请检查网络连接或服务器状态');
+                    }
+                });
+        }
+
+        // 编辑商品
+        function editProduct(id) {
+            axios.get(`/api/products/${id}`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const product = response.data.data;
+                        document.getElementById('edit-id').value = product.id;
+                        document.getElementById('edit-name').value = product.name;
+                        document.getElementById('edit-price').value = product.price;
+                        document.getElementById('edit-stock').value = product.stock;
+                        document.getElementById('edit-imageUrl').value = product.imageUrl || '';
+                        document.getElementById('edit-description').value = product.description;
+                        
+                        const editModal = new bootstrap.Modal(document.getElementById('editProductModal'));
+                        editModal.show();
+                    } else {
+                        alert('获取商品信息失败: ' + response.data.msg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('获取商品信息失败，请检查网络连接或服务器状态');
+                });
+        }
+
+        // 更新商品信息
+        function updateProduct() {
+            const id = document.getElementById('edit-id').value;
+            const formData = {
+                name: document.getElementById('edit-name').value,
+                price: document.getElementById('edit-price').value,
+                stock: document.getElementById('edit-stock').value,
+                imageUrl: document.getElementById('edit-imageUrl').value,
+                description: document.getElementById('edit-description').value
+            };
+
+            axios.put(`/api/products/${id}`, formData)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        alert('商品更新成功！');
+                        window.location.reload();
+                    } else {
+                        alert('更新失败: ' + response.data.msg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('更新失败，请检查网络连接或服务器状态');
+                });
+        }
+
+        // 确认下架商品
+        function confirmRemoveProduct(id) {
+            document.getElementById('remove-product-id').value = id;
+            const removeModal = new bootstrap.Modal(document.getElementById('removeProductModal'));
+            removeModal.show();
+        }
+
+        // 下架商品
+        function removeProduct() {
+            const id = document.getElementById('remove-product-id').value;
+            
+            axios.delete(`/api/products/${id}`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        alert('商品已下架！');
+                        window.location.reload();
+                    } else {
+                        alert('下架失败: ' + response.data.msg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('下架失败，请检查网络连接或服务器状态');
+                });
+        }
+
+        // 重新上架商品
+        function restoreProduct(id) {
+            // 这里假设有一个恢复商品的API
+            axios.post(`/api/products/${id}/restore`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        alert('商品已重新上架！');
+                        window.location.reload();
+                    } else {
+                        alert('上架失败: ' + response.data.msg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('上架失败，请检查网络连接或服务器状态');
+                });
+        }
+
+        // 清除商品缓存
+        function clearProductCache(id) {
+            axios.post(`/api/products/${id}/clear-cache`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        alert('商品缓存已清除！');
+                    } else {
+                        alert('清除缓存失败: ' + response.data.msg);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('清除缓存失败，请检查网络连接或服务器状态');
+                });
+        }
+
+        // 格式化日期时间
+        function formatDateTime(dateTimeStr) {
+            if (!dateTimeStr) return '未知';
+            const date = new Date(dateTimeStr);
+            return date.toLocaleString('zh-CN', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // 显示支付对话框
+        function showPaymentDialog(orderInfo) {
+            const message = `订单创建成功！\n订单号: ${orderInfo.orderNo}\n总金额: ¥${orderInfo.totalAmount}\n\n请选择操作：`;
+
+            if (confirm(message + '\n\n点击"确定"立即支付，点击"取消"稍后支付')) {
+                // 用户选择立即支付
+                payOrder(orderInfo.orderNo);
+            } else {
+                // 用户选择稍后支付
+                alert('订单已创建，您可以稍后在订单管理页面进行支付。\n注意：订单将在30分钟后自动取消。');
+
+                // 关闭商品详情模态框
+                const viewModal = bootstrap.Modal.getInstance(document.getElementById('viewProductModal'));
+                if (viewModal) {
+                    viewModal.hide();
+                }
+
+                // 刷新页面以更新库存显示
+                location.reload();
+            }
+        }
+
+        // 支付订单
+        function payOrder(orderNo) {
+            console.log('开始支付订单:', orderNo);
+
+            const paymentData = {
+                orderNo: orderNo
+            };
+
+            axios.post('/api/orders/payment', paymentData)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        alert('支付成功！订单已完成。');
+                        console.log('✅ 支付成功 - Redis库存已扣减，数据库库存已扣减');
+
+                        // 关闭商品详情模态框
+                        const viewModal = bootstrap.Modal.getInstance(document.getElementById('viewProductModal'));
+                        if (viewModal) {
+                            viewModal.hide();
+                        }
+
+                        // 刷新页面以更新库存显示
+                        location.reload();
+                    } else {
+                        alert('支付失败: ' + response.data.message);
+
+                        // 支付失败，询问是否取消订单
+                        if (confirm('支付失败，是否取消订单？\n取消订单将释放锁定的库存。')) {
+                            cancelOrder(orderNo);
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('支付请求失败:', error);
+                    alert('支付请求失败，请检查网络连接');
+
+                    // 支付请求失败，询问是否取消订单
+                    if (confirm('支付请求失败，是否取消订单？\n取消订单将释放锁定的库存。')) {
+                        cancelOrder(orderNo);
+                    }
+                });
+        }
+
+        // 取消订单
+        function cancelOrder(orderNo) {
+            console.log('开始取消订单:', orderNo);
+
+            axios.post(`/api/orders/cancel/${orderNo}`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        alert('订单已取消，库存已释放。');
+                        console.log('✅ 订单取消成功 - Redis库存已回滚');
+
+                        // 关闭商品详情模态框
+                        const viewModal = bootstrap.Modal.getInstance(document.getElementById('viewProductModal'));
+                        if (viewModal) {
+                            viewModal.hide();
+                        }
+
+                        // 刷新页面以更新库存显示
+                        location.reload();
+                    } else {
+                        alert('取消订单失败: ' + response.data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('取消订单请求失败:', error);
+                    alert('取消订单请求失败，请检查网络连接');
+                });
+        }
+
+        // 显示下架商品提示
+        function showOfflineMessage() {
+            alert('该商品已下架，无法查看详情');
+        }
+
+        // 检查缓存状态
+        function checkCacheStatus(productId) {
+            axios.get(`/api/products/${productId}/cache-status`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const status = response.data.data;
+                        console.log('🔍 缓存状态检查结果:', status);
+
+                        // 更新缓存状态显示
+                        const cacheStatusDiv = document.querySelector('.bg-info.bg-opacity-10');
+                        if (cacheStatusDiv) {
+                            let statusText = '';
+                            if (status.productCached && status.stockCached) {
+                                statusText = `✅ 商品信息和库存已缓存到Redis (库存: ${status.stockValue}) - ${status.timestamp}`;
+                                cacheStatusDiv.className = 'mt-3 p-2 bg-success bg-opacity-10 border border-success rounded';
+                                cacheStatusDiv.innerHTML = `<small class="text-success"><i class="bi bi-check-circle"></i> <strong>缓存状态：</strong>${statusText}</small>`;
+                            } else if (status.productCached) {
+                                statusText = `⚠️ 商品信息已缓存，但库存未缓存 - ${status.timestamp}`;
+                                cacheStatusDiv.className = 'mt-3 p-2 bg-warning bg-opacity-10 border border-warning rounded';
+                                cacheStatusDiv.innerHTML = `<small class="text-warning"><i class="bi bi-exclamation-triangle"></i> <strong>缓存状态：</strong>${statusText}</small>`;
+                            } else {
+                                statusText = `❌ 商品信息未缓存到Redis - ${status.timestamp}`;
+                                cacheStatusDiv.className = 'mt-3 p-2 bg-danger bg-opacity-10 border border-danger rounded';
+                                cacheStatusDiv.innerHTML = `<small class="text-danger"><i class="bi bi-x-circle"></i> <strong>缓存状态：</strong>${statusText}</small>`;
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    console.error('检查缓存状态失败:', error);
+                });
+        }
+    </script>
+</body>
+</html>

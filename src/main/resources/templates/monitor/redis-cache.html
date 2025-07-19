@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redis缓存监控 - 商品库存管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-box-seam"></i> 商品库存管理系统
+            </a>
+            <div class="collapse navbar-collapse">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/stock">库存监控</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/product/list">商品管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/monitor/redis-cache">Redis缓存</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-database"></i> Redis缓存监控</h2>
+            <button type="button" class="btn btn-primary" onclick="refreshAll()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新所有
+            </button>
+        </div>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>商品缓存查询</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label for="productId" class="form-label">商品ID</label>
+                            <input type="number" class="form-control" id="productId" placeholder="输入商品ID">
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-info" onclick="checkProductCache()">
+                                <i class="bi bi-search"></i> 查询商品缓存
+                            </button>
+                            <button class="btn btn-warning" onclick="checkRedisStock()">
+                                <i class="bi bi-box"></i> 查询Redis库存
+                            </button>
+                            <button class="btn btn-success" onclick="syncStock()">
+                                <i class="bi bi-arrow-repeat"></i> 同步库存到Redis
+                            </button>
+                            <button class="btn btn-danger" onclick="clearCache()">
+                                <i class="bi bi-trash"></i> 清除缓存
+                            </button>
+                            <button class="btn btn-secondary" onclick="checkLockedStock()">
+                                <i class="bi bi-lock"></i> 查询锁定库存
+                            </button>
+                            <button class="btn btn-warning" onclick="cleanExpiredLocks()">
+                                <i class="bi bi-clock"></i> 清理过期锁定
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>缓存状态</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="cache-status" class="border p-3 bg-light" style="height: 300px; overflow-y: auto;">
+                            <strong>缓存状态信息：</strong><br>
+                            点击左侧按钮查询缓存状态...<br>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row mt-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5>测试流程</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="alert alert-info">
+                            <h6><i class="bi bi-info-circle"></i> 测试Redis缓存流程：</h6>
+                            <ol>
+                                <li>输入商品ID（例如：1）</li>
+                                <li>点击"查询商品缓存"查看是否已有缓存</li>
+                                <li>如果没有缓存，访问商品详情页面：<code>/product/detail/1</code></li>
+                                <li>再次点击"查询商品缓存"确认缓存已创建</li>
+                                <li>点击"查询Redis库存"查看Redis中的库存数据</li>
+                                <li>点击"查询锁定库存"查看当前锁定的库存数量</li>
+                                <li>可以通过"同步库存到Redis"手动同步数据库库存</li>
+                                <li>可以通过"清理过期锁定"手动清理过期的库存锁定</li>
+                            </ol>
+                        </div>
+                        
+                        <div class="mt-3">
+                            <button class="btn btn-outline-primary me-2" onclick="testProduct(1)">
+                                测试商品1
+                            </button>
+                            <button class="btn btn-outline-secondary me-2" onclick="openProductDetail()">
+                                打开商品详情页
+                            </button>
+                            <a href="/product/list" class="btn btn-outline-success">
+                                返回商品列表
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        function log(message, type = 'info') {
+            const statusDiv = document.getElementById('cache-status');
+            const time = new Date().toLocaleTimeString();
+            const colorClass = type === 'error' ? 'text-danger' : type === 'success' ? 'text-success' : 'text-info';
+            statusDiv.innerHTML += `<span class="${colorClass}">[${time}] ${message}</span><br>`;
+            statusDiv.scrollTop = statusDiv.scrollHeight;
+        }
+        
+        function getProductId() {
+            const id = document.getElementById('productId').value;
+            if (!id) {
+                alert('请输入商品ID');
+                return null;
+            }
+            return parseInt(id);
+        }
+        
+        function checkProductCache() {
+            const productId = getProductId();
+            if (!productId) return;
+            
+            log(`查询商品${productId}的缓存信息...`);
+            
+            axios.get(`/api/products/${productId}`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const product = response.data.data;
+                        log(`✅ 商品缓存存在: ${product.name}`, 'success');
+                        log(`   - ID: ${product.id}`);
+                        log(`   - 名称: ${product.name}`);
+                        log(`   - 价格: ¥${product.price}`);
+                        log(`   - 库存: ${product.stock}`);
+                        log(`   - 状态: ${product.status === 1 ? '上架' : '下架'}`);
+                    } else {
+                        log(`❌ 获取商品信息失败: ${response.data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    log(`❌ 请求失败: ${error.message}`, 'error');
+                });
+        }
+        
+        function checkRedisStock() {
+            const productId = getProductId();
+            if (!productId) return;
+            
+            log(`查询商品${productId}的Redis库存...`);
+            
+            axios.get(`/api/products/${productId}/redis-stock`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const stock = response.data.data;
+                        if (stock !== null) {
+                            log(`✅ Redis库存: ${stock}`, 'success');
+                        } else {
+                            log(`⚠️ Redis中没有库存缓存`, 'error');
+                        }
+                    } else {
+                        log(`❌ 获取Redis库存失败: ${response.data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    log(`❌ 请求失败: ${error.message}`, 'error');
+                });
+        }
+        
+        function syncStock() {
+            const productId = getProductId();
+            if (!productId) return;
+            
+            log(`同步商品${productId}的库存到Redis...`);
+            
+            axios.post(`/api/products/${productId}/sync-to-redis`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        log(`✅ 库存同步成功`, 'success');
+                        // 同步后查询Redis库存
+                        setTimeout(() => checkRedisStock(), 500);
+                    } else {
+                        log(`❌ 库存同步失败: ${response.data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    log(`❌ 请求失败: ${error.message}`, 'error');
+                });
+        }
+        
+        function clearCache() {
+            const productId = getProductId();
+            if (!productId) return;
+
+            log(`清除商品${productId}的缓存...`);
+
+            axios.post(`/api/products/${productId}/clear-cache`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        log(`✅ 缓存清除成功`, 'success');
+                    } else {
+                        log(`❌ 缓存清除失败: ${response.data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    log(`❌ 请求失败: ${error.message}`, 'error');
+                });
+        }
+
+        function checkLockedStock() {
+            const productId = getProductId();
+            if (!productId) return;
+
+            log(`查询商品${productId}的锁定库存...`);
+
+            axios.get(`/api/products/${productId}/locked-stock`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const lockedStock = response.data.data;
+                        log(`✅ 锁定库存: ${lockedStock}`, 'success');
+                    } else {
+                        log(`❌ 获取锁定库存失败: ${response.data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    log(`❌ 请求失败: ${error.message}`, 'error');
+                });
+        }
+
+        function cleanExpiredLocks() {
+            log(`清理过期的库存锁定...`);
+
+            axios.post(`/api/products/clean-expired-locks`)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const cleanedCount = response.data.data;
+                        log(`✅ 清理完成，共清理 ${cleanedCount} 条过期锁定`, 'success');
+                    } else {
+                        log(`❌ 清理失败: ${response.data.message}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    log(`❌ 请求失败: ${error.message}`, 'error');
+                });
+        }
+        
+        function testProduct(id) {
+            document.getElementById('productId').value = id;
+            log(`=== 开始测试商品${id} ===`);
+            
+            // 先查询缓存状态
+            checkProductCache();
+            
+            setTimeout(() => {
+                checkRedisStock();
+            }, 1000);
+        }
+        
+        function openProductDetail() {
+            const productId = getProductId();
+            if (!productId) return;
+            
+            const url = `/product/detail/${productId}`;
+            log(`打开商品详情页: ${url}`);
+            window.open(url, '_blank');
+        }
+        
+        function refreshAll() {
+            document.getElementById('cache-status').innerHTML = '<strong>缓存状态信息：</strong><br>';
+            log('页面已刷新');
+        }
+        
+        // 页面加载完成
+        document.addEventListener('DOMContentLoaded', function() {
+            log('Redis缓存监控页面已加载');
+            log('请输入商品ID并点击相应按钮进行测试');
+        });
+    </script>
+</body>
+</html>

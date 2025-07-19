@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>库存流水 - 商品库存管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        .operation-badge {
+            font-size: 0.8rem;
+        }
+        .filter-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .table-responsive {
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .cursor-pointer {
+            cursor: pointer;
+        }
+        .cursor-pointer:hover {
+            background-color: #f8f9fa;
+        }
+        .stats-card {
+            transition: transform 0.2s;
+        }
+        .stats-card:hover {
+            transform: translateY(-2px);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-box-seam"></i> 商品库存管理系统
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/stock">库存监控</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/product/list">商品管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/order/list">订单管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/redis-cache">Redis缓存</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/monitor/stock-log">库存流水</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2><i class="bi bi-journal-text"></i> 库存流水记录</h2>
+            <div>
+                <a href="/monitor/stock" class="btn btn-outline-primary">
+                    <i class="bi bi-arrow-left"></i> 返回库存监控
+                </a>
+                <button class="btn btn-success" onclick="refreshData()">
+                    <i class="bi bi-arrow-clockwise"></i> 刷新数据
+                </button>
+            </div>
+        </div>
+
+        <!-- 筛选区域 -->
+        <div class="filter-section">
+            <div class="row">
+                <div class="col-md-3">
+                    <label class="form-label">商品ID</label>
+                    <input type="number" class="form-control" id="productIdFilter" placeholder="输入商品ID">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">操作类型</label>
+                    <select class="form-select" id="operationTypeFilter">
+                        <option value="">全部</option>
+                        <option value="LOCK">库存锁定</option>
+                        <option value="DEDUCT">库存扣减</option>
+                        <option value="ROLLBACK">库存回滚</option>
+                        <option value="SYNC">库存同步</option>
+                        <option value="INCREASE">库存增加</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">订单号</label>
+                    <input type="text" class="form-control" id="orderIdFilter" placeholder="输入订单号">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">&nbsp;</label>
+                    <div class="d-grid gap-2">
+                        <button class="btn btn-primary" onclick="applyFilter()">
+                            <i class="bi bi-search"></i> 筛选
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="clearFilter()">
+                            <i class="bi bi-x-circle"></i> 清空
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 统计信息 -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card text-center stats-card" onclick="clearFilter()">
+                    <div class="card-body">
+                        <h5 class="card-title text-primary">总记录数</h5>
+                        <h3 class="card-text" id="totalCount">-</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center stats-card" onclick="filterByOperationType('DEDUCT')">
+                    <div class="card-body">
+                        <h5 class="card-title text-danger">扣减记录</h5>
+                        <h3 class="card-text" id="deductCount">-</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center stats-card" onclick="filterByOperationType('SYNC')">
+                    <div class="card-body">
+                        <h5 class="card-title text-info">同步记录</h5>
+                        <h3 class="card-text" id="syncCount">-</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center stats-card" onclick="filterByOperationType('ROLLBACK')">
+                    <div class="card-body">
+                        <h5 class="card-title text-warning">回滚记录</h5>
+                        <h3 class="card-text" id="rollbackCount">-</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 库存流水表格 -->
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0">库存变更记录</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>ID</th>
+                                <th>商品ID</th>
+                                <th>操作类型</th>
+                                <th>变更前库存</th>
+                                <th>变更后库存</th>
+                                <th>变更数量</th>
+                                <th>订单号</th>
+                                <th>同步状态</th>
+                                <th>操作时间</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="stockLogTableBody">
+                            <!-- 数据将通过JavaScript动态加载 -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分页 -->
+        <nav aria-label="库存流水分页" class="mt-4">
+            <ul class="pagination justify-content-center" id="pagination">
+                <!-- 分页按钮将通过JavaScript动态生成 -->
+            </ul>
+        </nav>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        let currentPage = 0;
+        let pageSize = 20;
+        let totalPages = 0;
+
+        // 页面加载时获取数据
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStockLogs();
+            loadStatistics();
+        });
+
+        // 加载库存流水数据
+        function loadStockLogs(page = 0) {
+            const productId = document.getElementById('productIdFilter').value;
+            const operationType = document.getElementById('operationTypeFilter').value;
+            const orderId = document.getElementById('orderIdFilter').value;
+
+            let url = `/api/stock-logs?page=${page}&size=${pageSize}`;
+            if (productId) url += `&productId=${productId}`;
+            if (operationType) url += `&operationType=${operationType}`;
+            if (orderId) url += `&orderId=${orderId}`;
+
+            axios.get(url)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const data = response.data.data;
+                        renderStockLogTable(data.content);
+                        updatePagination(data.totalPages, data.number);
+                        currentPage = data.number;
+                        totalPages = data.totalPages;
+                    } else {
+                        alert('加载数据失败: ' + response.data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('网络错误，请稍后重试');
+                });
+        }
+
+        // 渲染库存流水表格
+        function renderStockLogTable(logs) {
+            const tbody = document.getElementById('stockLogTableBody');
+            tbody.innerHTML = '';
+
+            if (logs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted">暂无数据</td></tr>';
+                return;
+            }
+
+            logs.forEach(log => {
+                const row = document.createElement('tr');
+                row.className = 'cursor-pointer';
+                row.innerHTML = `
+                    <td>${log.id}</td>
+                    <td>
+                        <a href="javascript:void(0)" onclick="filterByProduct(${log.productId})" class="text-decoration-none">
+                            ${log.productId}
+                        </a>
+                    </td>
+                    <td>
+                        <a href="javascript:void(0)" onclick="filterByOperationType('${log.operationType}')" class="text-decoration-none">
+                            ${getOperationTypeBadge(log.operationType)}
+                        </a>
+                    </td>
+                    <td>${log.beforeStock}</td>
+                    <td>${log.afterStock}</td>
+                    <td class="${log.changeAmount > 0 ? 'text-success' : 'text-danger'}">
+                        ${log.changeAmount > 0 ? '+' : ''}${log.changeAmount}
+                    </td>
+                    <td>
+                        ${log.orderId ? `<a href="javascript:void(0)" onclick="filterByOrder('${log.orderId}')" class="text-decoration-none">${log.orderId}</a>` : '-'}
+                    </td>
+                    <td>${log.synced ? '<span class="badge bg-success">已同步</span>' : '<span class="badge bg-warning">未同步</span>'}</td>
+                    <td>${formatDateTime(log.createTime)}</td>
+                    <td>${log.remark || '-'}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // 获取操作类型徽章
+        function getOperationTypeBadge(type) {
+            const badges = {
+                'LOCK': '<span class="badge bg-primary operation-badge">库存锁定</span>',
+                'DEDUCT': '<span class="badge bg-danger operation-badge">库存扣减</span>',
+                'ROLLBACK': '<span class="badge bg-warning operation-badge">库存回滚</span>',
+                'SYNC': '<span class="badge bg-info operation-badge">库存同步</span>',
+                'INCREASE': '<span class="badge bg-success operation-badge">库存增加</span>'
+            };
+            return badges[type] || `<span class="badge bg-secondary operation-badge">${type}</span>`;
+        }
+
+        // 更新分页
+        function updatePagination(totalPages, currentPage) {
+            const pagination = document.getElementById('pagination');
+            pagination.innerHTML = '';
+
+            if (totalPages <= 1) return;
+
+            // 上一页
+            const prevLi = document.createElement('li');
+            prevLi.className = `page-item ${currentPage === 0 ? 'disabled' : ''}`;
+            prevLi.innerHTML = `<a class="page-link" href="#" onclick="loadStockLogs(${currentPage - 1})">上一页</a>`;
+            pagination.appendChild(prevLi);
+
+            // 页码
+            const startPage = Math.max(0, currentPage - 2);
+            const endPage = Math.min(totalPages - 1, currentPage + 2);
+
+            for (let i = startPage; i <= endPage; i++) {
+                const li = document.createElement('li');
+                li.className = `page-item ${i === currentPage ? 'active' : ''}`;
+                li.innerHTML = `<a class="page-link" href="#" onclick="loadStockLogs(${i})">${i + 1}</a>`;
+                pagination.appendChild(li);
+            }
+
+            // 下一页
+            const nextLi = document.createElement('li');
+            nextLi.className = `page-item ${currentPage === totalPages - 1 ? 'disabled' : ''}`;
+            nextLi.innerHTML = `<a class="page-link" href="#" onclick="loadStockLogs(${currentPage + 1})">下一页</a>`;
+            pagination.appendChild(nextLi);
+        }
+
+        // 加载统计数据
+        function loadStatistics() {
+            axios.get('/api/stock-logs/statistics')
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const stats = response.data.data;
+                        document.getElementById('totalCount').textContent = stats.total || 0;
+                        document.getElementById('deductCount').textContent = stats.deduct || 0;
+                        document.getElementById('syncCount').textContent = stats.sync || 0;
+                        document.getElementById('rollbackCount').textContent = stats.rollback || 0;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading statistics:', error);
+                });
+        }
+
+        // 应用筛选
+        function applyFilter() {
+            loadStockLogs(0);
+        }
+
+        // 清空筛选条件
+        function clearFilter() {
+            document.getElementById('productIdFilter').value = '';
+            document.getElementById('operationTypeFilter').value = '';
+            document.getElementById('orderIdFilter').value = '';
+            loadStockLogs(0);
+        }
+
+        // 刷新数据
+        function refreshData() {
+            loadStockLogs(currentPage);
+            loadStatistics();
+        }
+
+        // 快速筛选商品
+        function filterByProduct(productId) {
+            document.getElementById('productIdFilter').value = productId;
+            document.getElementById('operationTypeFilter').value = '';
+            document.getElementById('orderIdFilter').value = '';
+            loadStockLogs(0);
+        }
+
+        // 快速筛选订单
+        function filterByOrder(orderId) {
+            document.getElementById('productIdFilter').value = '';
+            document.getElementById('operationTypeFilter').value = '';
+            document.getElementById('orderIdFilter').value = orderId;
+            loadStockLogs(0);
+        }
+
+        // 快速筛选操作类型
+        function filterByOperationType(operationType) {
+            document.getElementById('productIdFilter').value = '';
+            document.getElementById('operationTypeFilter').value = operationType;
+            document.getElementById('orderIdFilter').value = '';
+            loadStockLogs(0);
+        }
+
+        // 格式化日期时间
+        function formatDateTime(dateTimeStr) {
+            if (!dateTimeStr) return '-';
+            const date = new Date(dateTimeStr);
+            return date.toLocaleString('zh-CN', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+    </script>
+</body>
+</html>

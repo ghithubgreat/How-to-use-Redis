@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品详情 - 商品库存管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        .product-image {
+            max-width: 100%;
+            height: 400px;
+            object-fit: cover;
+            border-radius: 10px;
+        }
+        .price-text {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #e74c3c;
+        }
+        .stock-info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .quantity-selector {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .quantity-btn {
+            width: 40px;
+            height: 40px;
+            border: 1px solid #ddd;
+            background: white;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .quantity-btn:hover {
+            background: #f8f9fa;
+            border-color: #007bff;
+            transform: scale(1.05);
+        }
+        .quantity-btn:active {
+            background: #e9ecef;
+            transform: scale(0.95);
+        }
+        .quantity-input {
+            width: 80px;
+            text-align: center;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            height: 40px;
+        }
+        .buy-btn {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-radius: 8px;
+            color: white;
+            transition: all 0.3s;
+        }
+        .buy-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(238, 90, 36, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-box-seam"></i> 商品库存管理系统
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/">首页</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/stock">库存监控</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/product/list">商品管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/order/list">订单管理</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container my-5">
+        <!-- 面包屑导航 -->
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="/">首页</a></li>
+                <li class="breadcrumb-item"><a href="/product/list">商品列表</a></li>
+                <li class="breadcrumb-item active" aria-current="page">商品详情</li>
+            </ol>
+        </nav>
+
+        <div class="row" th:if="${product}">
+            <!-- 商品图片 -->
+            <div class="col-md-6">
+                <img th:src="${product.imageUrl}" 
+                     th:alt="${product.name}" 
+                     class="product-image"
+                     onerror="this.src='https://via.placeholder.com/400x400?text=暂无图片'">
+            </div>
+            
+            <!-- 商品信息 -->
+            <div class="col-md-6">
+                <h1 class="mb-3" th:text="${product.name}">商品名称</h1>
+                
+                <div class="price-text mb-3">
+                    ¥<span th:text="${#numbers.formatDecimal(product.price, 0, 2)}">0.00</span>
+                </div>
+                
+                <div class="stock-info">
+                    <div class="row">
+                        <div class="col-6">
+                            <strong>库存数量：</strong>
+                            <span th:text="${product.stock}" class="text-primary">0</span> 件
+                        </div>
+                        <div class="col-6">
+                            <strong>商品状态：</strong>
+                            <span th:if="${product.status == 1}" class="badge bg-success">上架中</span>
+                            <span th:if="${product.status == 0}" class="badge bg-secondary">已下架</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mb-4">
+                    <h5>商品描述</h5>
+                    <p th:text="${product.description}" class="text-muted">商品描述信息</p>
+                </div>
+                
+                <!-- 购买区域 -->
+                <div th:if="${product.status == 1 and product.stock > 0}">
+                    <div class="quantity-selector">
+                        <label class="form-label">购买数量：</label>
+                        <button type="button" class="quantity-btn" onclick="decreaseQuantity()" title="减少数量">
+                            <i class="bi bi-dash"></i>
+                        </button>
+                        <input type="number" id="quantity" class="quantity-input" value="1" min="1" th:max="${product.stock}" step="1">
+                        <button type="button" class="quantity-btn" onclick="increaseQuantity()" title="增加数量">
+                            <i class="bi bi-plus"></i>
+                        </button>
+                        <span class="text-muted ms-2">库存 <span th:text="${product.stock}">0</span> 件</span>
+                        <div class="mt-2">
+                            <small class="text-info">
+                                <i class="bi bi-info-circle"></i>
+                                点击 + 或 - 按钮调整数量，或直接在输入框中输入
+                            </small>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-outline-secondary me-2" onclick="testQuantityFunctions()">
+                            <i class="bi bi-bug"></i> 测试数量功能
+                        </button>
+                        <button type="button" class="btn buy-btn" onclick="buyNow()">
+                            <i class="bi bi-cart-plus"></i> 立即购买
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 缺货提示 -->
+                <div th:if="${product.stock == 0}" class="alert alert-warning">
+                    <i class="bi bi-exclamation-triangle"></i> 商品暂时缺货
+                </div>
+                
+                <!-- 下架提示 -->
+                <div th:if="${product.status == 0}" class="alert alert-secondary">
+                    <i class="bi bi-pause-circle"></i> 商品已下架
+                </div>
+            </div>
+        </div>
+        
+        <!-- 商品不存在提示 -->
+        <div th:if="${product == null}" class="alert alert-danger text-center">
+            <h4><i class="bi bi-exclamation-triangle"></i> 商品不存在</h4>
+            <p>您访问的商品可能已被删除或不存在</p>
+            <a href="/product/list" class="btn btn-primary">返回商品列表</a>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script th:inline="javascript">
+        /*<![CDATA[*/
+        const maxStock = /*[[${product != null ? product.stock : 0}]]*/ 0;
+        const productStatus = /*[[${product != null ? product.status : 0}]]*/ 0;
+        const productId = /*[[${product != null ? product.id : 0}]]*/ 0;
+
+        console.log('Product data initialized:');
+        console.log('- Max stock:', maxStock);
+        console.log('- Product status:', productStatus);
+        console.log('- Product ID:', productId);
+        /*]]>*/
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('Page loaded, max stock:', maxStock);
+            const quantityInput = document.getElementById('quantity');
+            if (quantityInput) {
+                quantityInput.setAttribute('max', maxStock);
+                console.log('Set max attribute to:', maxStock);
+            }
+
+            // 添加事件监听器作为备用方案
+            const decreaseBtn = document.querySelector('.quantity-btn[title="减少数量"]');
+            const increaseBtn = document.querySelector('.quantity-btn[title="增加数量"]');
+
+            if (decreaseBtn) {
+                decreaseBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('Decrease button clicked via event listener');
+                    decreaseQuantity();
+                });
+            }
+
+            if (increaseBtn) {
+                increaseBtn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    console.log('Increase button clicked via event listener');
+                    increaseQuantity();
+                });
+            }
+
+            console.log('Event listeners added');
+        });
+        
+        function decreaseQuantity() {
+            console.log('decreaseQuantity called');
+            const input = document.getElementById('quantity');
+            if (!input) {
+                console.error('Quantity input not found');
+                return;
+            }
+
+            const currentValue = parseInt(input.value) || 1;
+            console.log('Decrease - Current value:', currentValue);
+
+            if (currentValue > 1) {
+                input.value = currentValue - 1;
+                console.log('Decreased to:', input.value);
+
+                // 触发input事件，确保其他监听器能响应
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                console.log('Cannot decrease - minimum is 1');
+            }
+        }
+
+        function increaseQuantity() {
+            console.log('increaseQuantity called');
+            const input = document.getElementById('quantity');
+            if (!input) {
+                console.error('Quantity input not found');
+                return;
+            }
+
+            const currentValue = parseInt(input.value) || 1;
+            const actualMaxStock = maxStock || parseInt(input.getAttribute('max')) || 999;
+
+            console.log('Increase - Current value:', currentValue, 'Max stock:', actualMaxStock);
+
+            if (currentValue < actualMaxStock) {
+                input.value = currentValue + 1;
+                console.log('Increased to:', input.value);
+
+                // 触发input事件，确保其他监听器能响应
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+            } else {
+                console.log('Cannot increase - reached max stock');
+                alert(`最大库存数量为 ${actualMaxStock}`);
+            }
+        }
+
+        function testQuantityFunctions() {
+            console.log('=== Testing Quantity Functions ===');
+            const input = document.getElementById('quantity');
+            console.log('Input element:', input);
+            console.log('Current value:', input ? input.value : 'NOT FOUND');
+            console.log('Max stock:', maxStock);
+            console.log('Input max attribute:', input ? input.getAttribute('max') : 'NOT FOUND');
+
+            alert(`当前数量: ${input ? input.value : 'NOT FOUND'}\n最大库存: ${maxStock}\n点击确定后将测试增加功能`);
+
+            if (input) {
+                increaseQuantity();
+                setTimeout(() => {
+                    alert(`测试增加后的数量: ${input.value}`);
+                }, 100);
+            }
+        }
+
+        function buyNow() {
+            const quantity = document.getElementById('quantity').value;
+
+            console.log('Buy now clicked:');
+            console.log('- Quantity:', quantity);
+            console.log('- Product ID:', productId);
+            console.log('- Product Status:', productStatus);
+            console.log('- Max Stock:', maxStock);
+
+            // 检查商品状态
+            if (productStatus !== 1) {
+                alert('商品已下架，无法购买');
+                return;
+            }
+
+            if (quantity < 1 || quantity > maxStock) {
+                alert('请选择正确的购买数量');
+                return;
+            }
+            
+            // 发送购买请求
+            fetch('/api/orders', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    productId: parseInt(productId),
+                    quantity: parseInt(quantity)
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.code === 200) {
+                    alert('订单创建成功！订单号：' + data.data.orderNo);
+                    // 跳转到订单详情页面
+                    window.location.href = '/order/payment/' + data.data.orderNo;
+                } else {
+                    alert('订单创建失败：' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('网络错误，请稍后重试');
+            });
+        }
+        
+        // 监听数量输入框变化
+        document.getElementById('quantity').addEventListener('input', function() {
+            const value = parseInt(this.value);
+            if (value < 1) {
+                this.value = 1;
+            } else if (value > maxStock) {
+                this.value = maxStock;
+            }
+        });
+    </script>
+</body>
+</html>
