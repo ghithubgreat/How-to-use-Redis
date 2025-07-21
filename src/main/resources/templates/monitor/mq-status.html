@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MQ消息监控 - 库存管理系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        .stats-card {
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+        .stats-card:hover {
+            transform: translateY(-2px);
+        }
+        .log-container {
+            height: 400px;
+            overflow-y: auto;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            font-family: 'Courier New', monospace;
+            font-size: 0.875rem;
+        }
+        .log-entry {
+            margin-bottom: 0.5rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
+        }
+        .log-info { background-color: #d1ecf1; color: #0c5460; }
+        .log-success { background-color: #d4edda; color: #155724; }
+        .log-warning { background-color: #fff3cd; color: #856404; }
+        .log-error { background-color: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand" href="#">
+                <i class="bi bi-gear-fill"></i> 库存管理系统
+            </a>
+            <div class="navbar-nav ms-auto">
+                <ul class="navbar-nav">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/product/list">商品管理</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/stock">库存监控</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/stock-log">库存流水</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/monitor/redis-cache">Redis缓存</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/monitor/mq-status">MQ监控</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h2><i class="bi bi-broadcast"></i> MQ消息监控</h2>
+                    <div>
+                        <button class="btn btn-outline-primary" onclick="refreshStatus()">
+                            <i class="bi bi-arrow-clockwise"></i> 刷新状态
+                        </button>
+                        <button class="btn btn-outline-secondary" onclick="clearLogs()">
+                            <i class="bi bi-trash"></i> 清空日志
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MQ状态统计 -->
+        <div class="row mb-4">
+            <div class="col-md-3">
+                <div class="card text-center stats-card">
+                    <div class="card-body">
+                        <h5 class="card-title text-primary">MQ状态</h5>
+                        <h3 class="card-text" id="mqStatus">检查中...</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center stats-card">
+                    <div class="card-body">
+                        <h5 class="card-title text-success">扣减消息</h5>
+                        <h3 class="card-text" id="deductionCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center stats-card">
+                    <div class="card-body">
+                        <h5 class="card-title text-warning">回滚消息</h5>
+                        <h3 class="card-text" id="rollbackCount">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="card text-center stats-card">
+                    <div class="card-body">
+                        <h5 class="card-title text-info">队列状态</h5>
+                        <h3 class="card-text" id="queueStatus">-</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 测试操作面板 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-play-circle"></i> MQ消息测试</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3">
+                                <label class="form-label">商品ID</label>
+                                <input type="number" class="form-control" id="testProductId" value="1" placeholder="输入商品ID">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">数量</label>
+                                <input type="number" class="form-control" id="testQuantity" value="1" placeholder="输入数量">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">订单号</label>
+                                <input type="text" class="form-control" id="testOrderNo" placeholder="输入订单号（可选）">
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">操作</label>
+                                <div class="d-grid gap-2">
+                                    <button class="btn btn-success" onclick="testDeductionMessage()">
+                                        <i class="bi bi-arrow-down"></i> 测试扣减
+                                    </button>
+                                    <button class="btn btn-warning" onclick="testRollbackMessage()">
+                                        <i class="bi bi-arrow-up"></i> 测试回滚
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 消息日志 -->
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="bi bi-journal-text"></i> MQ消息日志</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="mqLogs" class="log-container">
+                            <div class="log-entry log-info">
+                                <strong>[系统]</strong> MQ监控页面已加载，等待消息...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        let deductionMessageCount = 0;
+        let rollbackMessageCount = 0;
+
+        // 页面加载时初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshStatus();
+            // 每5秒自动刷新状态
+            setInterval(refreshStatus, 5000);
+        });
+
+        // 刷新MQ状态
+        function refreshStatus() {
+            // 获取MQ状态
+            axios.get('/api/mq/status')
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const data = response.data.data;
+                        document.getElementById('mqStatus').textContent = data.mode;
+                        document.getElementById('queueStatus').textContent = data.queueInfo;
+                    } else {
+                        document.getElementById('mqStatus').textContent = '获取失败';
+                        document.getElementById('queueStatus').textContent = '未知';
+                    }
+                })
+                .catch(error => {
+                    console.error('获取MQ状态失败:', error);
+                    document.getElementById('mqStatus').textContent = '连接失败';
+                    document.getElementById('queueStatus').textContent = '错误';
+                });
+
+            // 获取MQ统计数据
+            axios.get('/api/mq/statistics')
+                .then(response => {
+                    if (response.data.code === 200) {
+                        const statistics = response.data.data;
+                        deductionMessageCount = statistics.deductionCount;
+                        rollbackMessageCount = statistics.rollbackCount;
+
+                        document.getElementById('deductionCount').textContent = deductionMessageCount;
+                        document.getElementById('rollbackCount').textContent = rollbackMessageCount;
+
+                        // 更新日志
+                        updateLogs(statistics.logs);
+                    }
+                })
+                .catch(error => {
+                    console.error('获取MQ统计失败:', error);
+                });
+        }
+
+        // 测试扣减消息
+        function testDeductionMessage() {
+            const productId = document.getElementById('testProductId').value;
+            const quantity = document.getElementById('testQuantity').value;
+            const orderNo = document.getElementById('testOrderNo').value;
+
+            if (!productId || !quantity) {
+                alert('请输入商品ID和数量');
+                return;
+            }
+
+            const params = new URLSearchParams();
+            params.append('productId', productId);
+            params.append('quantity', quantity);
+            if (orderNo) params.append('orderNo', orderNo);
+
+            axios.post('/api/mq/test/deduction', params)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        addLog('success', `✅ ${response.data.data}`);
+                        // 刷新统计数据
+                        setTimeout(refreshStatus, 500);
+                    } else {
+                        addLog('error', `❌ 发送失败: ${response.data.message}`);
+                    }
+                })
+                .catch(error => {
+                    addLog('error', `❌ 请求失败: ${error.message}`);
+                });
+        }
+
+        // 测试回滚消息
+        function testRollbackMessage() {
+            const productId = document.getElementById('testProductId').value;
+            const quantity = document.getElementById('testQuantity').value;
+            const orderNo = document.getElementById('testOrderNo').value;
+
+            if (!productId || !quantity) {
+                alert('请输入商品ID和数量');
+                return;
+            }
+
+            const params = new URLSearchParams();
+            params.append('productId', productId);
+            params.append('quantity', quantity);
+            if (orderNo) params.append('orderNo', orderNo);
+
+            axios.post('/api/mq/test/rollback', params)
+                .then(response => {
+                    if (response.data.code === 200) {
+                        addLog('warning', `🔄 ${response.data.data}`);
+                        // 刷新统计数据
+                        setTimeout(refreshStatus, 500);
+                    } else {
+                        addLog('error', `❌ 发送失败: ${response.data.message}`);
+                    }
+                })
+                .catch(error => {
+                    addLog('error', `❌ 请求失败: ${error.message}`);
+                });
+        }
+
+        // 更新日志显示
+        function updateLogs(logs) {
+            const logsContainer = document.getElementById('mqLogs');
+
+            // 如果有新的日志数据，更新显示
+            if (logs && logs.length > 0) {
+                // 清空现有日志
+                logsContainer.innerHTML = '';
+
+                // 添加所有日志条目
+                logs.forEach(log => {
+                    const logEntry = document.createElement('div');
+                    logEntry.className = `log-entry log-${log.type}`;
+                    logEntry.innerHTML = `<strong>[${log.timestamp}]</strong> ${log.message}`;
+                    logsContainer.appendChild(logEntry);
+                });
+
+                // 滚动到底部
+                logsContainer.scrollTop = logsContainer.scrollHeight;
+            }
+        }
+
+        // 添加日志
+        function addLog(type, message) {
+            const logsContainer = document.getElementById('mqLogs');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+
+            logsContainer.appendChild(logEntry);
+            logsContainer.scrollTop = logsContainer.scrollHeight;
+        }
+
+        // 清空日志
+        function clearLogs() {
+            axios.post('/api/mq/clear')
+                .then(response => {
+                    if (response.data.code === 200) {
+                        addLog('info', '🧹 ' + response.data.data);
+                        // 刷新统计数据
+                        setTimeout(refreshStatus, 500);
+                    } else {
+                        addLog('error', `❌ 清空失败: ${response.data.message}`);
+                    }
+                })
+                .catch(error => {
+                    addLog('error', `❌ 清空请求失败: ${error.message}`);
+                });
+        }
+    </script>
+</body>
+</html>

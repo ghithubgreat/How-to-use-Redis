@@ -6,6 +6,7 @@ import com.example.skillsystem.entity.StockLock;
 import com.example.skillsystem.entity.StockLog;
 import com.example.skillsystem.enums.StockLockStatus;
 import com.example.skillsystem.enums.StockOperationType;
+import com.example.skillsystem.mq.StockMessageProducer;
 import com.example.skillsystem.repository.ProductRepository;
 import com.example.skillsystem.repository.StockLockRepository;
 import com.example.skillsystem.repository.StockLogRepository;
@@ -30,6 +31,7 @@ public class StockManagementServiceImpl implements StockManagementService {
     private final ProductRepository productRepository;
     private final StockLockRepository stockLockRepository;
     private final StockLogRepository stockLogRepository;
+    private final StockMessageProducer stockMessageProducer;
     
     @Override
     @Transactional
@@ -192,8 +194,22 @@ public class StockManagementServiceImpl implements StockManagementService {
                     .build();
             
             stockLogRepository.save(stockLog);
-            
-            log.info("数据库库存扣减成功: orderNo={}, quantity={}, beforeStock={}, afterStock={}", 
+
+            // 发送库存扣减MQ消息
+            try {
+                stockMessageProducer.sendStockDeductionMessage(
+                    stockLock.getProductId(),
+                    stockLock.getLockedQuantity(),
+                    orderNo
+                );
+                log.info("发送库存扣减MQ消息成功: orderNo={}, productId={}, quantity={}",
+                        orderNo, stockLock.getProductId(), stockLock.getLockedQuantity());
+            } catch (Exception mqException) {
+                log.error("发送库存扣减MQ消息失败: orderNo={}, error={}", orderNo, mqException.getMessage());
+                // MQ发送失败不影响业务流程
+            }
+
+            log.info("数据库库存扣减成功: orderNo={}, quantity={}, beforeStock={}, afterStock={}",
                     orderNo, stockLock.getLockedQuantity(), beforeStock, afterStock);
             return true;
             
@@ -247,8 +263,22 @@ public class StockManagementServiceImpl implements StockManagementService {
                     .build();
             
             stockLogRepository.save(stockLog);
-            
-            log.info("Redis库存回滚成功: orderNo={}, quantity={}, 回滚后库存={}", 
+
+            // 发送库存回滚MQ消息
+            try {
+                stockMessageProducer.sendStockRollbackMessage(
+                    stockLock.getProductId(),
+                    stockLock.getLockedQuantity(),
+                    orderNo
+                );
+                log.info("发送库存回滚MQ消息成功: orderNo={}, productId={}, quantity={}",
+                        orderNo, stockLock.getProductId(), stockLock.getLockedQuantity());
+            } catch (Exception mqException) {
+                log.error("发送库存回滚MQ消息失败: orderNo={}, error={}", orderNo, mqException.getMessage());
+                // MQ发送失败不影响业务流程
+            }
+
+            log.info("Redis库存回滚成功: orderNo={}, quantity={}, 回滚后库存={}",
                     orderNo, stockLock.getLockedQuantity(), newStock);
             return true;
             

@@ -22,4 +22,9 @@ public class StockMonitorViewController {
     public String stockStatusMonitor() {
         return "monitor/stock-status";
     }
+
+    @GetMapping("/mq-status")
+    public String mqStatusMonitor() {
+        return "monitor/mq-status";
+    }
 }
